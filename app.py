@@ -4,18 +4,19 @@ import uuid, os, re, requests, time, json
 from datetime import datetime
 from dotenv import load_dotenv
 
-# Load environment variables
+# Load .env variables
 load_dotenv()
 USERNAME = os.getenv("USERNAME")
 PASSWORD = os.getenv("PASSWORD")
 
 SESSION_FILE = "insta_session.json"
-API_URL = "https://glob-info.vercel.app/info?uid="
+INFO_API = "https://glob-info.vercel.app/info?uid="
+VISTS_API = "https://vists-api.vercel.app/ind/"
 
 cl = Client()
 logged_in = False
+login_user = ""
 last_msg_ids = set()
-responded_users = set()
 
 def setup_client():
     cl.set_uuids({
@@ -30,8 +31,9 @@ def fmt(ts):
     return datetime.fromtimestamp(int(ts)).strftime("%d/%m/%Y, %I:%M:%S %p") if ts else "N/A"
 
 def login(username, password):
-    global logged_in
+    global logged_in, login_user
     setup_client()
+    login_user = username
     try:
         if os.path.exists(SESSION_FILE):
             with open(SESSION_FILE, 'r') as f:
@@ -43,27 +45,26 @@ def login(username, password):
                 cl.set_settings(json.loads(session))
             cl.login(username, password)
             logged_in = True
-            print("✅ Logged in with saved session.")
+            print("✅ Logged in using saved session.")
             return
         cl.login(username, password)
         cl.dump_settings(SESSION_FILE)
         logged_in = True
         print("✅ Fresh login success.")
     except ChallengeRequired:
-        print("🔐 Challenge required. Login manually on browser.")
+        print("🔐 Challenge required. Login on browser first.")
     except Exception as e:
         print(f"❌ Login failed: {e}")
 
-def extract_uid(text):
-    match = re.search(r"/info\s+(\d{5,})", text.lower())
+def extract_uid(text, cmd):
+    match = re.search(rf"/{cmd}\s+(\d{{5,}})", text.lower())
     return match.group(1) if match else None
 
 def fetch_info(uid):
     try:
-        res = requests.get(API_URL + uid)
+        res = requests.get(INFO_API + uid)
         if res.status_code != 200:
             return f"❌ API Error: {res.status_code}"
-
         data = res.json()
         b = data.get("basicInfo", {})
         s = data.get("socialInfo", {})
@@ -71,47 +72,82 @@ def fetch_info(uid):
         p = data.get("petInfo", {})
         cs = data.get("creditScoreInfo", {})
         pr = data.get("profileInfo", {})
-
         return (
-            f"┌ 👤 ACCOUNT BASIC INFO\n"
-            f"├─ Name: {b.get('nickname','?')}\n"
-            f"├─ UID: {uid}\n"
-            f"├─ Level: {b.get('level','?')} (Exp: {b.get('exp','?')})\n"
-            f"├─ Region: {b.get('region','?')} | Likes: {b.get('liked','?')}\n"
-            f"├─ Gender: {s.get('gender','N/A').replace('Gender_', '')}\n"
-            f"├─ Language: {s.get('language','N/A').replace('Language_', '')}\n"
-            f"└─ Signature: {s.get('signature','-')}\n\n"
+            f"┌ 👤 ACCOUNT BASIC INFO
+"
+            f"├─ Name: {b.get('nickname','?')}
+"
+            f"├─ UID: {uid}
+"
+            f"├─ Level: {b.get('level','?')} (Exp: {b.get('exp','?')})
+"
+            f"├─ Region: {b.get('region','?')} | Likes: {b.get('liked','?')}
+"
+            f"├─ Gender: {s.get('gender','N/A').replace('Gender_', '')}
+"
+            f"├─ Language: {s.get('language','N/A').replace('Language_', '')}
+"
+            f"└─ Signature: {s.get('signature','-')}
 
-            f"┌ 🎮 ACTIVITY\n"
-            f"├─ BR Rank: {b.get('rank','?')} ({b.get('rankingPoints','?')})\n"
-            f"├─ CS Rank: {b.get('csRank','?')}\n"
-            f"├─ Season: {b.get('seasonId','?')} | OB: {b.get('releaseVersion','?')}\n"
-            f"├─ Created: {fmt(b.get('createAt', 0))}\n"
-            f"└─ Last Login: {fmt(b.get('lastLoginAt', 0))}\n\n"
+"
+            f"┌ 🎮 ACTIVITY
+"
+            f"├─ BR Rank: {b.get('rank','?')} ({b.get('rankingPoints','?')})
+"
+            f"├─ CS Rank: {b.get('csRank','?')}
+"
+            f"├─ Season: {b.get('seasonId','?')} | OB: {b.get('releaseVersion','?')}
+"
+            f"├─ Created: {fmt(b.get('createAt', 0))}
+"
+            f"└─ Last Login: {fmt(b.get('lastLoginAt', 0))}
 
-            f"┌ 🛡 CLAN INFO\n"
-            f"├─ Name: {c.get('clanName','-')}\n"
-            f"├─ Level: {c.get('clanLevel','-')} | Members: {c.get('memberNum','-')}\n"
-            f"└─ Leader UID: {c.get('captainId','-')}\n\n"
+"
+            f"┌ 🛡 CLAN INFO
+"
+            f"├─ Name: {c.get('clanName','-')}
+"
+            f"├─ Level: {c.get('clanLevel','-')} | Members: {c.get('memberNum','-')}
+"
+            f"└─ Leader UID: {c.get('captainId','-')}
 
-            f"┌ 🐾 PET INFO\n"
-            f"├─ Level: {p.get('level','-')} | Exp: {p.get('exp','-')}\n"
-            f"├─ Skill ID: {p.get('selectedSkillId','-')} | Skin ID: {p.get('skinId','-')}\n"
-            f"└─ Equipped: {'Yes' if p.get('isSelected', False) else 'No'}\n\n"
+"
+            f"┌ 🐾 PET INFO
+"
+            f"├─ Level: {p.get('level','-')} | Exp: {p.get('exp','-')}
+"
+            f"├─ Skill ID: {p.get('selectedSkillId','-')} | Skin ID: {p.get('skinId','-')}
+"
+            f"└─ Equipped: {'Yes' if p.get('isSelected', False) else 'No'}
 
-            f"┌ 🧩 PROFILE\n"
-            f"├─ Avatar: {pr.get('avatarId','-')} | Starred: {pr.get('isMarkedStar','-')}\n"
-            f"├─ Clothes: {', '.join(map(str, pr.get('clothes', [])))}\n"
-            f"└─ Skills: {', '.join(map(str, pr.get('equipedSkills', [])))}\n\n"
+"
+            f"┌ 🧩 PROFILE
+"
+            f"├─ Avatar: {pr.get('avatarId','-')} | Starred: {pr.get('isMarkedStar','-')}
+"
+            f"├─ Clothes: {', '.join(map(str, pr.get('clothes', [])))}
+"
+            f"└─ Skills: {', '.join(map(str, pr.get('equipedSkills', [])))}
 
-            f"┌ ✅ HONOR\n"
+"
+            f"┌ ✅ HONOR
+"
             f"└─ Credit Score: {cs.get('creditScore','-')}"
         )
     except Exception as e:
         return f"❌ Error fetching info: {e}"
 
+def fetch_vists(uid):
+    try:
+        res = requests.get(VISTS_API + uid)
+        if res.status_code != 200:
+            return f"❌ VISTS API Error: {res.status_code}"
+        return res.text.strip()
+    except Exception as e:
+        return f"❌ Error fetching VISTS data: {e}"
+
 def check_inbox():
-    global last_msg_ids, responded_users
+    global last_msg_ids
     try:
         inbox = cl.direct_threads(amount=10)
         for thread in inbox:
@@ -120,23 +156,31 @@ def check_inbox():
                 if msg.id in last_msg_ids:
                     continue
                 last_msg_ids.add(msg.id)
-
-                sender_id = msg.user_id
-                if sender_id not in responded_users:
-                    cl.direct_send("👋 Welcome! Send `/info <uid>` to get Free Fire info.", thread_ids=[thread.id])
-                    responded_users.add(sender_id)
-
                 if msg.text:
-                    uid = extract_uid(msg.text)
-                    if uid:
-                        reply = fetch_info(uid)
-                        cl.direct_send(reply, thread_ids=[thread.id])
-                        print(f"[✅] Replied to /info {uid}")
+                    text = msg.text.strip()
+                    if text.lower().startswith("/info"):
+                        cl.direct_send("⏳ Please wait while I fetch the data...", thread_ids=[thread.id])
+                        uid = extract_uid(text, "info")
+                        if uid:
+                            reply = fetch_info(uid)
+                            cl.direct_send(reply, thread_ids=[thread.id])
+                    elif text.lower().startswith("/vists"):
+                        cl.direct_send("⏳ Fetching VISTS data, please wait...", thread_ids=[thread.id])
+                        uid = extract_uid(text, "vists")
+                        if uid:
+                            reply = fetch_vists(uid)
+                            cl.direct_send(reply, thread_ids=[thread.id])
+                    elif "start" in text.lower():
+                        cl.direct_send("👋 Hi! You can use the following commands:
+"
+                                       "/info <UID> — Get Free Fire account info
+"
+                                       "/vists <UID> — Get VISTS API data", thread_ids=[thread.id])
     except Exception as e:
         print(f"⚠️ Inbox error: {e}")
 
 def start_bot():
-    print("🤖 Bot is running... Checking inbox.")
+    print("🤖 Bot running... instant command processing.")
     while True:
         check_inbox()
         time.sleep(1)
