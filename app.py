@@ -1,7 +1,7 @@
+import os, re, json, uuid, time, requests
+from datetime import datetime
 from instagrapi import Client
 from instagrapi.exceptions import ChallengeRequired
-import uuid, os, re, requests, time, json
-from datetime import datetime
 from dotenv import load_dotenv
 
 load_dotenv()
@@ -9,10 +9,13 @@ USERNAME = os.getenv("USERNAME")
 PASSWORD = os.getenv("PASSWORD")
 
 SESSION_FILE = "insta_session.json"
+INFO_API = "https://glob-info.vercel.app/info?uid="
+VISTS_API = "https://vists-api.vercel.app/ind/"
+
 cl = Client()
 logged_in = False
-replied_to = set()
-welcomed_users = set()  # for sending welcome only once per user
+last_msg_ids = set()
+welcomed_users = set()
 
 def setup_client():
     cl.set_uuids({
@@ -24,10 +27,7 @@ def setup_client():
     })
 
 def fmt(ts):
-    try:
-        return datetime.fromtimestamp(int(ts)).strftime("%d/%m/%Y, %I:%M:%S %p")
-    except:
-        return "N/A"
+    return datetime.fromtimestamp(int(ts)).strftime("%d/%m/%Y, %I:%M:%S %p") if ts else "N/A"
 
 def login(username, password):
     global logged_in
@@ -35,137 +35,115 @@ def login(username, password):
     try:
         if os.path.exists(SESSION_FILE):
             with open(SESSION_FILE, 'r') as f:
-                s = f.read().strip()
-                if not s:
+                session = f.read().strip()
+                if not session:
                     os.remove(SESSION_FILE)
                     print("⚠️ Empty session deleted.")
                     return
-                cl.set_settings(json.loads(s))
+                cl.set_settings(json.loads(session))
             cl.login(username, password)
             logged_in = True
-            print("✅ Logged in via session.")
+            print("✅ Logged in using saved session.")
             return
         cl.login(username, password)
         cl.dump_settings(SESSION_FILE)
         logged_in = True
-        print("✅ Fresh login successful.")
+        print("✅ Fresh login success.")
     except ChallengeRequired:
-        print("🔐 Challenge required.")
+        print("🔐 Challenge required. Login manually.")
     except Exception as e:
         print(f"❌ Login failed: {e}")
 
-def extract_uid(text, cmd="/info"):
-    match = re.search(rf"{cmd}\s+(\d+)", text.lower())
+def extract_uid(text, command="/info"):
+    match = re.search(rf"{re.escape(command)}\s+(\d+)", text.lower())
     return match.group(1) if match else None
 
 def fetch_info(uid):
     try:
-        res = requests.get(f"https://glob-info.vercel.app/info?uid={uid}")
-        data = res.json()
-        b = data.get("basicInfo", {})
-        s = data.get("socialInfo", {})
-        c = data.get("clanBasicInfo", {})
-        p = data.get("petInfo", {})
-        cs = data.get("creditScoreInfo", {})
-        pr = data.get("profileInfo", {})
-
-        return f"""┌ 👤 ACCOUNT BASIC INFO
-├─ Name: {b.get('nickname','?')}
-├─ UID: {uid}
-├─ Level: {b.get('level','?')} (Exp: {b.get('exp','?')})
-├─ Region: {b.get('region','?')} | Likes: {b.get('liked','?')}
-├─ Gender: {s.get('gender','N/A').replace('Gender_', '')}
-├─ Language: {s.get('language','N/A').replace('Language_', '')}
-└─ Signature: {s.get('signature','-')}
-
-┌ 🎮 ACTIVITY
-├─ BR Rank: {b.get('rank','?')} ({b.get('rankingPoints','?')})
-├─ CS Rank: {b.get('csRank','?')}
-├─ OB: {b.get('releaseVersion','?')}
-├─ Created: {fmt(b.get('createAt', 0))}
-└─ Last Login: {fmt(b.get('lastLoginAt', 0))}
-
-┌ 🛡 CLAN INFO
-├─ Name: {c.get('clanName','-')}
-├─ Level: {c.get('clanLevel','-')} | Members: {c.get('memberNum','-')}
-└─ Leader UID: {c.get('captainId','-')}
-
-┌ 🐾 PET INFO
-├─ Level: {p.get('level','-')} | Exp: {p.get('exp','-')}
-├─ Skill ID: {p.get('selectedSkillId','-')} | Skin ID: {p.get('skinId','-')}
-└─ Equipped: {'Yes' if p.get('isSelected', False) else 'No'}
-
-┌ 🧩 PROFILE
-├─ Avatar: {pr.get('avatarId','-')} | Starred: {pr.get('isMarkedStar','-')}
-├─ Clothes: {', '.join(map(str, pr.get('clothes', [])))}
-└─ Skills: {', '.join(map(str, pr.get('equipedSkills', [])))}
-
-┌ ✅ HONOR
-└─ Credit Score: {cs.get('creditScore','-')}"""
+        res = requests.get(INFO_API + uid)
+        if res.status_code != 200:
+            return f"❌ Info API Error: {res.status_code}"
+        d = res.json()
+        b, s, c, p, cs, pr = map(d.get, ["basicInfo", "socialInfo", "clanBasicInfo", "petInfo", "creditScoreInfo", "profileInfo"])
+        return (
+            f"👤 ACCOUNT\n"
+            f"• Name: {b.get('nickname','?')} | UID: {uid}\n"
+            f"• Level: {b.get('level')} (Exp: {b.get('exp')}) | Likes: {b.get('liked')}\n"
+            f"• Region: {b.get('region')} | Rank: {b.get('rank')} ({b.get('rankingPoints')})\n"
+            f"• Signature: {s.get('signature','-')}\n"
+            f"• Last Login: {fmt(b.get('lastLoginAt',0))} | Created: {fmt(b.get('createAt',0))}\n\n"
+            f"🛡 CLAN\n"
+            f"• {c.get('clanName','-')} (Level {c.get('clanLevel','-')}) | Members: {c.get('memberNum','-')}\n\n"
+            f"🐾 PET\n"
+            f"• Level: {p.get('level')} | Skill: {p.get('selectedSkillId')} | Equipped: {p.get('isSelected')}\n\n"
+            f"✅ HONOR\n"
+            f"• Credit Score: {cs.get('creditScore','-')}"
+        )
     except Exception as e:
-        return f"❌ Error: {e}"
+        return f"❌ Error fetching info: {e}"
 
 def fetch_vists(uid):
     try:
-        res = requests.get(f"https://vists-api.vercel.app/ind/{uid}")
+        res = requests.get(VISTS_API + uid)
         if res.status_code != 200:
-            return "❌ Vists API Error"
-        return "📊 Vists Data:\n" + json.dumps(res.json(), indent=2)
+            return f"❌ Vists API Error: {res.status_code}"
+        d = res.json()
+        return (
+            f"📊 VISTS SUMMARY\n"
+            f"• Name: {d.get('nickname', '-')}\n"
+            f"• UID: {d.get('uid', '-')}\n"
+            f"• Region: {d.get('region', '-')}\n"
+            f"• Level: {d.get('level', '-')}\n"
+            f"• Likes: {d.get('likes', '-'):,}\n"
+            f"• Success: {d.get('success')} ✅ | Fail: {d.get('fail')} ❌"
+        )
     except Exception as e:
-        return f"❌ Vists API error: {e}"
+        return f"❌ Error fetching vists info: {e}"
 
 def check_inbox():
+    global last_msg_ids
     try:
         inbox = cl.direct_threads(amount=10)
         for thread in inbox:
+            user_id = thread.users[0].pk if thread.users else None
             messages = cl.direct_messages(thread.id, amount=5)
+
             for msg in messages:
-                if not msg.text or msg.id in replied_to:
+                if msg.id in last_msg_ids:
                     continue
-                replied_to.add(msg.id)
-                user_id = msg.user_id
+                last_msg_ids.add(msg.id)
 
                 text = msg.text.strip().lower()
-                handled = False
+
+                if user_id and user_id not in welcomed_users:
+                    cl.direct_send("👋 Welcome! Use /info <uid> or /vists <uid>", thread_ids=[thread.id])
+                    welcomed_users.add(user_id)
 
                 if text.startswith("/info "):
                     uid = extract_uid(text, "/info")
                     if uid:
-                        cl.direct_send("⌛ Please wait... fetching Free Fire info.", thread_ids=[thread.id])
-                        time.sleep(1)
-                        reply = fetch_info(uid)
-                        cl.direct_send(reply, thread_ids=[thread.id])
+                        cl.direct_send(fetch_info(uid), thread_ids=[thread.id])
                         print(f"[✅] /info {uid}")
-                        handled = True
+                        break
 
                 elif text.startswith("/vists "):
                     uid = extract_uid(text, "/vists")
                     if uid:
-                        cl.direct_send("⌛ Please wait... fetching vists data.", thread_ids=[thread.id])
-                        time.sleep(1)
-                        reply = fetch_vists(uid)
-                        cl.direct_send(reply, thread_ids=[thread.id])
+                        cl.direct_send(fetch_vists(uid), thread_ids=[thread.id])
                         print(f"[✅] /vists {uid}")
-                        handled = True
-
-                # Only send welcome message once if no command matched
-                if not handled and user_id not in welcomed_users:
-                    cl.direct_send("👋 Welcome! You can use:\n• /info <uid>\n• /vists <uid>", thread_ids=[thread.id])
-                    welcomed_users.add(user_id)
-
+                        break
     except Exception as e:
-        print(f"⚠️ Error checking inbox: {e}")
+        print(f"⚠️ Inbox error: {e}")
 
 def start_bot():
-    print("🤖 Bot running... checking inbox every 1s")
+    print("🤖 Bot is running... instant reply enabled.")
     while True:
         check_inbox()
-        time.sleep(1)
 
 if __name__ == "__main__":
-    print("📲 Insta FF Info Bot")
+    print("=== Insta FF Info Bot ===")
     if not USERNAME or not PASSWORD:
-        print("❌ Missing USERNAME or PASSWORD in .env")
+        print("❌ Missing USERNAME or PASSWORD in .env.")
     else:
         login(USERNAME, PASSWORD)
         if logged_in:
