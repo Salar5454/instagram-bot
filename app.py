@@ -11,6 +11,8 @@ PASSWORD = os.getenv("PASSWORD")
 SESSION_FILE = "insta_session.json"
 cl = Client()
 logged_in = False
+replied_to = set()
+welcomed_users = set()  # for sending welcome only once per user
 
 def setup_client():
     cl.set_uuids({
@@ -118,15 +120,18 @@ def check_inbox():
         for thread in inbox:
             messages = cl.direct_messages(thread.id, amount=5)
             for msg in messages:
-                if not msg.text:
+                if not msg.text or msg.id in replied_to:
                     continue
-                text = msg.text.lower().strip()
+                replied_to.add(msg.id)
+                user_id = msg.user_id
+
+                text = msg.text.strip().lower()
                 handled = False
 
                 if text.startswith("/info "):
                     uid = extract_uid(text, "/info")
                     if uid:
-                        cl.direct_send("⌛ Please wait... fetching info.", thread_ids=[thread.id])
+                        cl.direct_send("⌛ Please wait... fetching Free Fire info.", thread_ids=[thread.id])
                         time.sleep(1)
                         reply = fetch_info(uid)
                         cl.direct_send(reply, thread_ids=[thread.id])
@@ -143,13 +148,16 @@ def check_inbox():
                         print(f"[✅] /vists {uid}")
                         handled = True
 
-                if not handled:
-                    cl.direct_send("🤖 Available commands:\n• /info <uid>\n• /vists <uid>", thread_ids=[thread.id])
+                # Only send welcome message once if no command matched
+                if not handled and user_id not in welcomed_users:
+                    cl.direct_send("👋 Welcome! You can use:\n• /info <uid>\n• /vists <uid>", thread_ids=[thread.id])
+                    welcomed_users.add(user_id)
+
     except Exception as e:
         print(f"⚠️ Error checking inbox: {e}")
 
 def start_bot():
-    print("🤖 Bot running. Watching messages...")
+    print("🤖 Bot running... checking inbox every 1s")
     while True:
         check_inbox()
         time.sleep(1)
@@ -157,7 +165,7 @@ def start_bot():
 if __name__ == "__main__":
     print("📲 Insta FF Info Bot")
     if not USERNAME or not PASSWORD:
-        print("❌ .env is missing USERNAME or PASSWORD")
+        print("❌ Missing USERNAME or PASSWORD in .env")
     else:
         login(USERNAME, PASSWORD)
         if logged_in:
