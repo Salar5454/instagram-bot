@@ -22,7 +22,10 @@ def setup_client():
     })
 
 def fmt(ts):
-    return datetime.fromtimestamp(int(ts)).strftime("%d/%m/%Y, %I:%M:%S %p") if ts else "N/A"
+    try:
+        return datetime.fromtimestamp(int(ts)).strftime("%d/%m/%Y, %I:%M:%S %p")
+    except:
+        return "N/A"
 
 def login(username, password):
     global logged_in
@@ -33,19 +36,19 @@ def login(username, password):
                 s = f.read().strip()
                 if not s:
                     os.remove(SESSION_FILE)
-                    print("⚠️ Empty session file deleted.")
+                    print("⚠️ Empty session deleted.")
                     return
                 cl.set_settings(json.loads(s))
             cl.login(username, password)
             logged_in = True
-            print("✅ Logged in using session.")
+            print("✅ Logged in via session.")
             return
         cl.login(username, password)
         cl.dump_settings(SESSION_FILE)
         logged_in = True
-        print("✅ Fresh login success.")
+        print("✅ Fresh login successful.")
     except ChallengeRequired:
-        print("🔐 Challenge required. Login on browser.")
+        print("🔐 Challenge required.")
     except Exception as e:
         print(f"❌ Login failed: {e}")
 
@@ -104,7 +107,7 @@ def fetch_vists(uid):
     try:
         res = requests.get(f"https://vists-api.vercel.app/ind/{uid}")
         if res.status_code != 200:
-            return "❌ Vists API error"
+            return "❌ Vists API Error"
         return "📊 Vists Data:\n" + json.dumps(res.json(), indent=2)
     except Exception as e:
         return f"❌ Vists API error: {e}"
@@ -113,33 +116,40 @@ def check_inbox():
     try:
         inbox = cl.direct_threads(amount=10)
         for thread in inbox:
-            msgs = cl.direct_messages(thread.id, amount=5)
-            for msg in msgs:
+            messages = cl.direct_messages(thread.id, amount=5)
+            for msg in messages:
                 if not msg.text:
                     continue
-                text = msg.text.lower()
+                text = msg.text.lower().strip()
+                handled = False
 
-                if "/info" in text:
+                if text.startswith("/info "):
                     uid = extract_uid(text, "/info")
                     if uid:
                         cl.direct_send("⌛ Please wait... fetching info.", thread_ids=[thread.id])
+                        time.sleep(1)
                         reply = fetch_info(uid)
                         cl.direct_send(reply, thread_ids=[thread.id])
-                        print(f"[✅] /info {uid} replied.")
-                elif "/vists" in text:
+                        print(f"[✅] /info {uid}")
+                        handled = True
+
+                elif text.startswith("/vists "):
                     uid = extract_uid(text, "/vists")
                     if uid:
                         cl.direct_send("⌛ Please wait... fetching vists data.", thread_ids=[thread.id])
+                        time.sleep(1)
                         reply = fetch_vists(uid)
                         cl.direct_send(reply, thread_ids=[thread.id])
-                        print(f"[✅] /vists {uid} replied.")
-                else:
+                        print(f"[✅] /vists {uid}")
+                        handled = True
+
+                if not handled:
                     cl.direct_send("🤖 Available commands:\n• /info <uid>\n• /vists <uid>", thread_ids=[thread.id])
     except Exception as e:
         print(f"⚠️ Error checking inbox: {e}")
 
 def start_bot():
-    print("🤖 Bot running...")
+    print("🤖 Bot running. Watching messages...")
     while True:
         check_inbox()
         time.sleep(1)
