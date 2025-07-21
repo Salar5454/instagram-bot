@@ -11,7 +11,6 @@ PASSWORD = os.getenv("PASSWORD")
 SESSION_FILE = "insta_session.json"
 cl = Client()
 logged_in = False
-last_msg_ids = set()
 
 def setup_client():
     cl.set_uuids({
@@ -111,49 +110,44 @@ def fetch_vists(uid):
         return f"❌ Vists API error: {e}"
 
 def check_inbox():
-    global last_msg_ids
     try:
         inbox = cl.direct_threads(amount=10)
         for thread in inbox:
             msgs = cl.direct_messages(thread.id, amount=5)
             for msg in msgs:
-                if msg.id in last_msg_ids:
-                    continue
-                last_msg_ids.add(msg.id)
                 if not msg.text:
                     continue
-
                 text = msg.text.lower()
+
                 if "/info" in text:
                     uid = extract_uid(text, "/info")
                     if uid:
-                        cl.direct_send("⌛ Please wait...", thread_ids=[thread.id])
+                        cl.direct_send("⌛ Please wait... fetching info.", thread_ids=[thread.id])
                         reply = fetch_info(uid)
                         cl.direct_send(reply, thread_ids=[thread.id])
-                        print(f"[✅] /info {uid} sent.")
+                        print(f"[✅] /info {uid} replied.")
                 elif "/vists" in text:
                     uid = extract_uid(text, "/vists")
                     if uid:
-                        cl.direct_send("⌛ Fetching vists data...", thread_ids=[thread.id])
+                        cl.direct_send("⌛ Please wait... fetching vists data.", thread_ids=[thread.id])
                         reply = fetch_vists(uid)
                         cl.direct_send(reply, thread_ids=[thread.id])
-                        print(f"[✅] /vists {uid} sent.")
+                        print(f"[✅] /vists {uid} replied.")
                 else:
-                    help_text = "🤖 Commands:\n- `/info UID`\n- `/vists UID`"
-                    cl.direct_send(help_text, thread_ids=[thread.id])
+                    cl.direct_send("🤖 Available commands:\n• /info <uid>\n• /vists <uid>", thread_ids=[thread.id])
     except Exception as e:
-        print(f"⚠️ Inbox check error: {e}")
+        print(f"⚠️ Error checking inbox: {e}")
 
 def start_bot():
-    print("🤖 Running... polling every 1s")
+    print("🤖 Bot running...")
     while True:
         check_inbox()
         time.sleep(1)
 
 if __name__ == "__main__":
-    print("=== Insta FF Info Bot ===")
+    print("📲 Insta FF Info Bot")
     if not USERNAME or not PASSWORD:
-        print("❌ Missing USERNAME or PASSWORD in .env")
+        print("❌ .env is missing USERNAME or PASSWORD")
     else:
         login(USERNAME, PASSWORD)
         if logged_in:
