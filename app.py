@@ -4,7 +4,7 @@ import uuid, os, re, requests, time, json
 from datetime import datetime
 from dotenv import load_dotenv
 
-# Load .env variables
+# Load environment variables
 load_dotenv()
 USERNAME = os.getenv("USERNAME")
 PASSWORD = os.getenv("PASSWORD")
@@ -14,8 +14,8 @@ API_URL = "https://glob-info.vercel.app/info?uid="
 
 cl = Client()
 logged_in = False
-login_user = ""
 last_msg_ids = set()
+responded_users = set()
 
 def setup_client():
     cl.set_uuids({
@@ -30,9 +30,8 @@ def fmt(ts):
     return datetime.fromtimestamp(int(ts)).strftime("%d/%m/%Y, %I:%M:%S %p") if ts else "N/A"
 
 def login(username, password):
-    global logged_in, login_user
+    global logged_in
     setup_client()
-    login_user = username
     try:
         if os.path.exists(SESSION_FILE):
             with open(SESSION_FILE, 'r') as f:
@@ -44,14 +43,14 @@ def login(username, password):
                 cl.set_settings(json.loads(session))
             cl.login(username, password)
             logged_in = True
-            print("✅ Logged in using saved session.")
+            print("✅ Logged in with saved session.")
             return
         cl.login(username, password)
         cl.dump_settings(SESSION_FILE)
         logged_in = True
         print("✅ Fresh login success.")
     except ChallengeRequired:
-        print("🔐 Challenge required. Login on browser first.")
+        print("🔐 Challenge required. Login manually on browser.")
     except Exception as e:
         print(f"❌ Login failed: {e}")
 
@@ -112,7 +111,7 @@ def fetch_info(uid):
         return f"❌ Error fetching info: {e}"
 
 def check_inbox():
-    global last_msg_ids
+    global last_msg_ids, responded_users
     try:
         inbox = cl.direct_threads(amount=10)
         for thread in inbox:
@@ -121,6 +120,12 @@ def check_inbox():
                 if msg.id in last_msg_ids:
                     continue
                 last_msg_ids.add(msg.id)
+
+                sender_id = msg.user_id
+                if sender_id not in responded_users:
+                    cl.direct_send("👋 Welcome! Send `/info <uid>` to get Free Fire info.", thread_ids=[thread.id])
+                    responded_users.add(sender_id)
+
                 if msg.text:
                     uid = extract_uid(msg.text)
                     if uid:
@@ -131,7 +136,7 @@ def check_inbox():
         print(f"⚠️ Inbox error: {e}")
 
 def start_bot():
-    print("🤖 Bot is now running... checking every 1s for new commands.")
+    print("🤖 Bot is running... Checking inbox.")
     while True:
         check_inbox()
         time.sleep(1)
