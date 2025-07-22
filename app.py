@@ -110,9 +110,20 @@ def fetch_vists(uid):
         res = requests.get(f"https://vists-api.vercel.app/ind/{uid}")
         if res.status_code != 200:
             return "❌ Vists API Error"
-        return "📊 Vists Data:\n" + json.dumps(res.json(), indent=2)
+        
+        data = res.json()
+        return f"""📊 VISTS DATA
+├─ 👤 Nickname: {data.get("nickname", "-")}
+├─ 🆔 UID: {data.get("uid", "-")}
+├─ 🗺️ Region: {data.get("region", "-")}
+├─ 🆙 Level: {data.get("level", "-")}
+├─ 👍 Likes: {data.get("likes", "-")}
+├─ ✅ Success: {data.get("success", "-")}
+└─ ❌ Fail: {data.get("fail", "-")}
+"""
     except Exception as e:
         return f"❌ Vists API error: {e}"
+
 
 def check_inbox():
     try:
