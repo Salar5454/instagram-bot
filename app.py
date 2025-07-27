@@ -12,7 +12,7 @@ SESSION_FILE = "insta_session.json"
 cl = Client()
 logged_in = False
 replied_to = set()
-welcomed_users = set()  # for sending welcome only once per user
+welcomed_users = set()
 
 def setup_client():
     cl.set_uuids({
@@ -124,6 +124,21 @@ def fetch_vists(uid):
     except Exception as e:
         return f"❌ Vists API error: {e}"
 
+def spam_friend_requests(uid):
+    try:
+        url = f"https://spamapi-ashy.vercel.app/send_requests?uid={uid}"
+        res = requests.get(url)
+        if res.status_code != 200:
+            return "❌ Spam API Error"
+
+        data = res.json()
+        success = data.get("success_count", 0)
+        failed = data.get("failed_count", 0)
+        return f"""🚀 Spam Completed!
+✅ Success: {success}
+❌ Failed: {failed}"""
+    except Exception as e:
+        return f"❌ Spam error: {e}"
 
 def check_inbox():
     try:
@@ -159,9 +174,18 @@ def check_inbox():
                         print(f"[✅] /vists {uid}")
                         handled = True
 
-                # Only send welcome message once if no command matched
+                elif text.startswith("/spam "):
+                    uid = extract_uid(text, "/spam")
+                    if uid:
+                        cl.direct_send("⌛ Sending spam requests...", thread_ids=[thread.id])
+                        time.sleep(1)
+                        reply = spam_friend_requests(uid)
+                        cl.direct_send(reply, thread_ids=[thread.id])
+                        print(f"[✅] /spam {uid}")
+                        handled = True
+
                 if not handled and user_id not in welcomed_users:
-                    cl.direct_send("👋 Welcome! You can use:\n• /info <uid>\n• /vists <uid>", thread_ids=[thread.id])
+                    cl.direct_send("👋 Welcome! You can use:\n• /info <uid>\n• /vists <uid>\n• /spam <uid>", thread_ids=[thread.id])
                     welcomed_users.add(user_id)
 
     except Exception as e:
